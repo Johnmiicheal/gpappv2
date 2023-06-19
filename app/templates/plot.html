@@ -1,0 +1,701 @@
+<html lang="en">
+  <head>
+    <link
+      href="{{ url_for('static', filename= 'css/plotstyle.css') }}"
+      rel="stylesheet"
+      type="text/css"
+      media="all"
+    />
+    <!--<link href="{{ url_for('static', filename= 'css/style.css') }}" rel="stylesheet" type="text/css" media="all"> -->
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--<meta http-equiv="refresh" content="5">-->
+    <title>TRANSFORMER HEALTH STATUS</title>
+    <!-- HIGH CHART-->
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/highcharts-more.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/modules/export-data.js"></script>
+    <script src="https://code.highcharts.com/modules/accessibility.js"></script>
+  </head>
+
+  <body>
+    {% with messages = get_flashed_messages() %} {% if messages %}
+    <ul>
+      {% for message in messages %}
+      <div class="alert_green">
+        <!-- <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span> -->
+        {{ message }}
+      </div>
+      <script>
+        // Fade out the alert box after 3 seconds
+        setTimeout(function () {
+          var alertBox = document.querySelector(".alert_green");
+          alertBox.style.opacity = "0";
+          alertBox.style.transition = "opacity 1s ease-in-out";
+          setTimeout(function () {
+            alertBox.remove();
+          }, 1000);
+        }, 800);
+      </script>
+      {% endfor %}
+    </ul>
+    {% endif %} {% endwith %}
+    <header class="header">
+      <p class="logo">SMART MONITORING SYSTEM PORTAL</p>
+
+      <span style="display: flex">
+        <!--DELETE ALL DATA-->
+        <form action="/delete" method="post">
+          <input
+            type="submit"
+            class="buttonstyle"
+            onclick="handleDelete()"
+            value="CLEAR ALL DATA"
+          />
+        </form>
+        <!-- LOGOUT -->
+        <form action="/logout" method="post">
+          <input type="submit" class="logout" value="LOGOUT" />
+        </form>
+      </span>
+    </header>
+
+    <!--HIGH CHART -->
+    <div class="jumbotron"></div>
+    <br />
+    <br />
+    <div class="layout"></div>
+    <div class="container-fluid">
+      <div class="ctrl-container">
+        <h2 class="ctrl-header">Control Panel</h2>
+        <div style="display: flex; flex-direction: row; align-items: center">
+          <div class="ctrl-btn">
+            <div style="display: flex; margin-left: 190px; gap: 100px">
+              <p>Value</p>
+              <p style="margin-left: -30px">Set Range</p>
+            </div>
+            <div class="ctrl">
+              <p style="width: 130px">Temperature</p>
+              <p class="ctrl-value" id="ctrl-value-1"></p>
+            </div>
+
+            <div class="ctrl">
+              <p style="width: 130px; line-height: 1.2em">
+                Line to Line Voltage
+              </p>
+              <p class="ctrl-value" id="ctrl-value-2"></p>
+            </div>
+
+            <div class="ctrl">
+              <p style="width: 130px; line-height: 1.2em">
+                Line to Neutral Voltage
+              </p>
+              <p class="ctrl-value" id="ctrl-value-3"></p>
+            </div>
+
+            <div class="ctrl">
+              <p style="width: 130px; line-height: 1.2em">
+                Voltage Neutral to Earth
+              </p>
+              <p class="ctrl-value" id="ctrl-value-4"></p>
+            </div>
+          </div>
+
+          <div class="ctrl-form">
+            <input
+              type="number"
+              name="form-c1"
+              id="form-c1"
+              class="btn-input"
+            />
+
+            <div style="display: flex; align-items: center">
+              <input
+                type="number"
+                name="form-c2"
+                id="form-c2"
+                class="btn-input"
+              />
+              <button
+                style="margin-left: 20px"
+                class="ctrl-form-btn"
+                onclick="updateInput()"
+              >
+                Submit
+              </button>
+            </div>
+            <input
+              type="number"
+              name="form-c3"
+              id="form-c3"
+              class="btn-input"
+            />
+            <input
+              type="number"
+              name="form-c4"
+              id="form-c4"
+              class="btn-input"
+            />
+          </div>
+        </div>
+      </div>
+      <!-- Charts Grid -->
+      <div id="chart-temperature" class="container"></div>
+      <div id="chart-voltage_l_l" class="container"></div>
+      <div id="chart-voltage_l_n" class="container"></div>
+      <div id="chart-voltage_n_e" class="container"></div>
+      <div id="chart-current" class="container"></div>
+    </div>
+  </body>
+  <script src="https://smtpjs.com/v3/smtp.js"></script>
+  <script>
+    let counter = 0; // Counter to track the duration
+    const durationThreshold = 5; // Duration threshold in minutes
+
+    let overheating = false;
+    let voltageSent = false;
+    let singleShort = false;
+    let threeShort= false;
+    let lineSent = false;
+    let neutralSent = false;
+    let insulation = false;
+    let singleCore = false;
+    let threeCore = false;
+    let unbalancedPositive = false;
+    let unbalancedNegative = false;
+    let singleNotEnergized = false;
+    let threeNotEnergized = false;
+
+    setTimeout(() => {
+      setInterval(() => {
+        // Create your own SMTPJS Account and insert the details here
+        fetch("/get_transformer_input")
+          .then((response) => response.text())
+          .then((transformer) => {
+            fetch("/get_data")
+              .then((response) => response.text())
+              .then((data) => {
+                data = data.split(", ");
+                transformer = transformer.split(", ");
+                console.log("Transformer: ", transformer);
+                console.log("Data: ", data);
+
+                //Overheating Fault
+                if (parseInt(data[1]) > parseInt(transformer[0]) + 30 && !overheating) {
+                  console.log(
+                    `${parseInt(data[1])} is greater than Transformer input ${
+                      parseInt(parseInt(transformer[0])) + 30
+                    }`
+                  );
+                  alert("Temperature is too high");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "Temperature is too high(Overheating)",
+                    Body: ` 
+                  Indication of fault: when temperature is consistently higher than normal or is fluctuating significantly  <br/>
+                  Cause of fault: possible <br/>
+                  •	short circuit <br/>
+                  •	failure in insulation <br/>
+                  •	failure in transformer components(internal malfunction)<br/>
+                  <br/>
+                  Solution: <br/>
+                  perform the following tests <br/>
+                  •	Temperature rise test <br/>
+                  •	Losses test <br/>
+                  `,
+                  }).then((message) => alert(message));
+                  overheating = true;
+                } else if (parseInt(transformer[0]) + 30 <= parseInt(data[1])) {
+                  overheating = false;
+                }
+
+                // Overloading Fault (3Phase)
+                setInterval(() => {
+                  if (parseInt(data[2]) > parseInt(transformer[1]) + 50 && !lineSent) {
+                    console.log(
+                      `${parseInt(data[2])} is higher than ${parseInt(transformer[1]) + 50}`
+                    );
+                    alert("Overloading Fault in 3 Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Overloading Fault (3 Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels are consistently higher than normal <br/>
+                  Cause of fault: possible ->  short circuit or failure in transformer components <br/>
+                  Solution: perform the following tests <br/>
+                  •	Load tap changer (LTC) test <br/>
+                  •	Temperature rise test <br/>
+                  •	Losses test <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    lineSent = true;
+                  } else if (parseInt(data[2]) <= parseInt(transformer[1]) + 50) {
+                    lineSent = false;
+                  }
+                }, 5 * 60 * 1000)
+
+                //Overloading Fault(Single Phase)
+                setInterval(() => {
+                  if (parseInt(data[3]) > parseInt(transformer[2]) + 50 && !voltageSent) {
+                    console.log(`${parseInt(transformer[2]) + 50} is less than ${parseInt(data[3])}`);
+                    alert("Overloading Fault in Single Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Overloading Fault (Single Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels are consistently higher than normal <br/>
+                  Cause of fault: possible ->  short circuit or failure in transformer components <br/>
+                  Solution: perform the following tests <br/>
+                  •	Load tap changer (LTC) test <br/>
+                  •	Temperature rise test <br/>
+                  •	Losses test <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    voltageSent = true;
+                  } else if (parseInt(data[3]) <= parseInt(transformer[2]) + 50) {
+                    voltageSent = false;
+                  }
+                }, 5 * 60 & 1000)
+
+                // Short Circuit (Single Phase)
+                if (parseInt(data[3]) > parseInt(transformer[2]) + 50 && !singleShort) {
+                    console.log(`${parseInt(transformer[2]) + 50} is less than ${parseInt(data[3])}`);
+                    alert("Short Circuit Fault in Single Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Short Circuit Fault (Single Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels changes suddenly or unexpectedly  <br/>
+                  Cause of fault: possible ->  short circuit or failure in transformer components <br/>
+                  Solution: perform the following tests <br/>
+                  •	Load tap changer (LTC) test <br/>
+                  •	dielectric test 
+                  <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    singleShort = true;
+                  } else if (parseInt(data[3]) <= parseInt(transformer[2]) + 50) {
+                    singleShort = false;
+                  }
+
+                  // Short Circuit (Three Phase)
+                  if (parseInt(data[2]) > parseInt(transformer[1]) + 50 && !threeShort) { 
+                    console.log(
+                      `${parseInt(data[2])} is higher than ${parseInt(transformer[1]) + 50}`
+                    );
+                    alert("Short Circuit Fault in 3 Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Short Circuit Fault (3 Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels changes suddenly or unexpectedly  <br/>
+                  Cause of fault: possible ->  short circuit or failure in transformer components <br/>
+                  Solution: perform the following tests <br/>
+                  •	Load tap changer (LTC) test <br/>
+                  •	dielectric test 
+                  <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    threeShort = true;
+                  } else if (parseInt(data[2]) <= parseInt(transformer[1]) + 50) {
+                    threeShort = false;
+                  }
+
+                //Voltage Leakage
+                if (parseInt(data[4]) > parseInt(transformer[3]) + 10 && !neutralSent) {
+                  console.log(`${parseInt(transformer[3]) + 10} is less than ${parseInt(data[4])}`);
+                  alert("voltage leakage detected");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "Voltage Leakage Detected(Earthing Fault)",
+                    Body: `
+                  Indication of fault: Voltage reading in the neutral and earth voltage sensor <br/>
+                  Cause of fault: Unintended connection between the neutral conductor and the grounding system  <br/>
+                  Solution: Conduct the following test:<br/>
+                  •	Insulation resistance test <br/>
+                  •	Grounding system test <br/>
+                  •	Visual inspection of the transformer  <br/>
+                  `,
+                  }).then((message) => alert(message));
+                  neutralSent = true;
+                } else if (parseInt(data[4]) <= parseInt(transformer[3]) + 10) {
+                  neutralSent = false;
+                }
+
+                //Insulation Failure
+                setInterval(() => {
+                  if (parseInt(data[1]) === parseInt(transformer[0]) + 50 && !insulation) {
+                    console.log(`${parseInt(data[1])} is too high`);
+                    alert("Temperature has been too high for too long");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Insulation Fault",
+                      Body: ` 
+                        Indication of fault: when temperature remains consistently high over an extended period of time  <br/>
+                        Cause of fault: possible degraded/failed transformer insulation <br/>
+                        <br/>
+                        Solution: <br/>
+                        perform the following tests <br/>
+                        •	insulation test <br/>
+                        •	dielectric test 
+                        <br/>
+                      `,
+                    }).then((message) => alert(message));
+                    insulation = true;
+                    counter = 0; // Reset the counter
+                  } else if (parseInt(data[1]) === parseInt(transformer[0]) + 50) {
+                    insulation = false;
+                    counter = 0; // Reset the counter
+                  } else {
+                    counter++; // Increment the counter if the condition is not met
+                  }
+                }, 5 * 60 * 1000); // Run every 5 minutes (5 * 60 * 1000 milliseconds)
+
+                //Core Damage Fault
+                //Three Phase
+                setInterval(() => {
+                  if (parseInt(data[2]) < parseInt(transformer[1]) - 50 && !threeCore) {
+                    console.log(`${parseInt(data[2])} is significantly low`);
+                    alert("Core Damage Fault in 3 Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Core Damage Fault (3 Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels are consistently lower than normal <br/>
+                  Cause of fault: possible ->  indicates that the transformer core is damaged  <br/>
+                  Solution: perform the following tests <br/>
+                  •	No load test<br/>
+                  •	magnetizing current test  <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    threeCore = true;
+                  } else if (parseInt(data[2]) >= parseInt(transformer[1]) - 50) {
+                    threeCore = false;
+                  }
+                }, 5 * 60 * 1000)
+
+                //Single Phase
+                setInterval(() => {
+                  if (parseInt(data[3]) < parseInt(transformer[2]) - 50 && !singleCore) {
+                    console.log(`${parseInt(data[3])} is significantly low`);
+                    alert("Core Damage Fault in Single Phase");
+                    Email.send({
+                      Host: "smtp.elasticemail.com",
+                      Username: "smarttransfromerproject2023@gmail.com",
+                      Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                      To: "godspoweramun2019@gmail.com",
+                      From: "smarttransfromerproject2023@gmail.com",
+                      Subject: "Core Damage Fault (Single Phase)",
+                      Body: `
+                  Indication of fault: when voltages levels are consistently lower than normal <br/>
+                  Cause of fault: possible ->  indicates that the transformer core is damaged  <br/>
+                  Solution: perform the following tests <br/>
+                  •	No load test<br/> 
+                  •	magnetizing current test  <br/>
+                  `,
+                    }).then((message) => alert(message));
+                    singleCore = true;
+                  } else if (parseInt(data[3]) > parseInt(transformer[2]) - 50) {
+                    singleCore = false;
+                  }
+                }, 5 * 60 * 1000)
+
+                //Unbalanced Fault
+                //Positive Unbalanced Fault
+                if (
+                  parseInt(data[2]) < parseInt(transformer[1]) + 80 &&
+                  parseInt(data[3]) < parseInt(transformer[2]) + 80 &&
+                  !unbalancedPositive
+                ) {
+                  console.log(`${parseInt(transformer[1])} is significantly low`);
+                  alert("Unbalanced loading Fault");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "Unbalanced loading fault ",
+                    Body: `
+                      Indication of fault: when voltage is significantly unbalanced between the different phases  <br/>
+                      Cause of fault: possible -> the transformer is experiencing unbalanced loading   <br/>
+                      Solution: perform the following tests <br/>
+                      •	Phase voltage test<br/>
+                `,
+                  }).then((message) => alert(message));
+                  unbalancedPositive = true;
+                } else if (
+                  parseInt(data[2]) >= parseInt(transformer[1]) + 80 &&
+                  parseInt(data[3]) >= parseInt(transformer[2]) + 80
+                ) {
+                  unbalancedPositive = false;
+                }
+
+                //Negative Unbalanced Fault
+                if (
+                  parseInt(data[2]) < parseInt(transformer[1]) - 80 &&
+                  parseInt(data[3]) < parseInt(transformer[2]) - 80 &&
+                  !unbalancedNegative
+                ) {
+                  console.log(`${parseInt(data[3])} is significantly low`);
+                  alert("Unbalanced loading fault detected");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "Core Damage Fault",
+                    Body: `
+                    Indication of fault: when voltage is significantly unbalanced between the different phases  <br/>
+                    Cause of fault: possible -> the transformer is experiencing unbalanced loading   <br/>
+                    Solution: perform the following tests <br/>
+                    •	Phase voltage test<br/>
+                `,
+                  }).then((message) => alert(message));
+                  unbalancedNegative = true;
+                } else if (
+                  parseInt(data[2]) > parseInt(transformer[1]) - 80 &&
+                  parseInt(data[3]) > parseInt(transformer[2]) - 80
+                ) {
+                  unbalancedNegative = false;
+                }
+
+                //Transformer not energized
+                //Three Phase
+                if (parseInt(data[2]) <= 20 && !threeNotEnergized) {
+                  console.log(`${parseInt(transformer[1])} is significantly low`);
+                  alert("No Secondary voltage fault (3 Phase)");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "No Secondary voltage  (3 Phase)",
+                    Body: `
+                Indication of fault: Absence or lack of voltage at the secondary side of the transformer <br/>
+                Cause of fault: possible ->  It could be a break or interruption in the electrical circuit on the secondary side.  <br/>
+                Solution: perform the following tests <br/>
+                •	Continuity test  <br/>
+                •	Resistance Test <br/>
+                •	Insulation Test  <br/>
+                `,
+                  }).then((message) => alert(message));
+                  threeNotEnergized = true;
+                } else if (parseInt(data[2]) > 20) {
+                  threeNotEnergized = false;
+                }
+
+                //Single Phase
+                if (parseInt(data[3]) <= 20 && !singleNotEnergized) {
+                  console.log(`${parseInt(data[3])} is significantly low`);
+                  alert("No Secondary voltage (Single Phase)");
+                  Email.send({
+                    Host: "smtp.elasticemail.com",
+                    Username: "smarttransfromerproject2023@gmail.com",
+                    Password: "5B24F8BBB773D2F42F6E7F2FC385A06EE067",
+                    To: "godspoweramun2019@gmail.com",
+                    From: "smarttransfromerproject2023@gmail.com",
+                    Subject: "No Secondary voltage (Single Phase)",
+                    Body: `
+                    Indication of fault: Absence or lack of voltage at the secondary side of the transformer <br/>
+                Cause of fault: possible ->  It could be a break or interruption in the electrical circuit on the secondary side.  <br/>
+                Solution: perform the following tests <br/>
+                •	Continuity test  <br/>
+                •	Resistance Test <br/>
+                •	Insulation Test  <br/>
+                `,
+                  }).then((message) => alert(message));
+                  singleNotEnergized = true;
+                } else if (parseInt(data[3]) > 20) {
+                  singleNotEnergized = false;
+                }
+              });
+          });
+      }, 1000); // Every 0.9 Seconds
+    }, 1000); // Delay function for 5 minutes
+
+    for (let i = 1; i <= 4; i++) {
+      fetch(`/get_transformer_input/c${i}`)
+        .then((response) => response.text())
+        .then((data) => {
+          console.log("Value: ", data);
+          const value = document.getElementById(`ctrl-value-${i}`);
+          value.textContent = parseInt(data);
+        })
+        .catch((error) => {
+          console.error("Error fetching value: ", error);
+        });
+    }
+
+    function updateInput() {
+      let b1 = document.getElementById("form-c1").value;
+      let b2 = document.getElementById("form-c2").value;
+      let b3 = document.getElementById("form-c3").value;
+      let b4 = document.getElementById("form-c4").value;
+      if (b1 && b2 && b3 && b4) {
+        fetch(`/insert/${b1}/${b2}/${b3}/${b4}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).then(() => {
+          const value1 = document.getElementById(`ctrl-value-1`);
+          value1.textContent = parseInt(b1);
+
+          const value2 = document.getElementById(`ctrl-value-2`);
+          value2.textContent = parseInt(b2);
+
+          const value3 = document.getElementById(`ctrl-value-3`);
+          value3.textContent = parseInt(b3);
+
+          const value4 = document.getElementById(`ctrl-value-4`);
+          value4.textContent = parseInt(b4);
+          window.location.reload();
+        });
+      } else {
+        alert("Please fill all control inputs");
+      }
+    }
+
+    //TEMPERATURE
+    let xData = [];
+    function fetchData() {
+      return new Promise((resolve, reject) => {
+        const xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function () {
+          if (this.readyState == 4 && this.status == 200) {
+            const data = JSON.parse(this.responseText);
+            resolve(data);
+          } else if (this.readyState === 4) {
+            reject("Error fetching data");
+          }
+        };
+        xhttp.open("GET", "/data", true);
+        xhttp.send();
+      });
+    }
+
+    function handleDelete() {
+      localStorage.clear();
+    }
+
+    //Create Chart
+    function createChart(id, titleText, yAxisTitleText, dataPointIndex) {
+      let chartData = localStorage.getItem(`chartData-${id}`);
+      if (chartData) {
+        chartData = JSON.parse(chartData);
+      } else {
+        chartData = [];
+      }
+      const chart = new Highcharts.Chart({
+        chart: { renderTo: id },
+        title: { text: titleText },
+        series: [
+          {
+            showInLegend: false,
+            data: chartData,
+          },
+        ],
+        plotOptions: {
+          line: {
+            animation: false,
+            dataLabels: { enabled: true },
+          },
+          series: { color: "#5469d4" },
+        },
+        xAxis: {
+          type: "datetime",
+          dateTimeLabelFormats: { second: "%H:%M:%S" },
+        },
+        yAxis: { title: { text: yAxisTitleText } },
+        credits: { enabled: false },
+      });
+
+      setInterval(() => {
+        const xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function () {
+          if (this.readyState == 4 && this.status == 200) {
+            const x = new Date().getTime();
+            const y = this.responseText;
+            const y_strip = y.slice(1, -1);
+            const y_split = y_strip.split(", ");
+            const y_plot = parseFloat(y_split[dataPointIndex]);
+
+            if (chart.series[0].data.length > 40) {
+              chart.series[0].addPoint([x, y_plot], true, true, true);
+            } else {
+              chart.series[0].addPoint([x, y_plot], true, false, true);
+            }
+            chartData = chart.series[0].data.map((point) => [point.x, point.y]);
+            localStorage.setItem(`chartData-${id}`, JSON.stringify(chartData));
+          }
+        };
+        xhttp.open("GET", "/data", true);
+        xhttp.send();
+      }, 5000);
+
+      return chart;
+    }
+
+    const chartT = createChart(
+      "chart-temperature",
+      "Transformer Temperature",
+      "Temperature (Celsius)",
+      1
+    );
+
+    const chartVll = createChart(
+      "chart-voltage_l_l",
+      "Transformer line to line voltage",
+      "Voltage (V)",
+      2
+    );
+
+    const chartVln = createChart(
+      "chart-voltage_l_n",
+      "Transformer line to Neutral voltage",
+      "Voltage (V)",
+      3
+    );
+
+    const chartVne = createChart(
+      "chart-voltage_n_e",
+      "Voltage Neutral to Earth",
+      "Voltage (V)",
+      4
+    );
+  </script>
+</html>
